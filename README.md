@@ -60,7 +60,9 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. The dev server forwards API calls to port 8000.
+Open http://localhost:5173. The frontend calls the API under `/api`, and the dev server (and
+nginx in Docker) removes that prefix and forwards the call to the backend on port 8000. The
+prefix keeps the browser pages (`/projects/3`) from clashing with API paths of the same name.
 
 `DATABASE_URL` in `.env` uses `127.0.0.1` because the backend runs on your machine. Inside
 Compose the backend uses the host name `db` instead; `docker-compose.yml` sets that.

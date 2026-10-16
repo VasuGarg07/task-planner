@@ -1,3 +1,5 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
 import { PAGE_SIZE } from "./api";
 
 interface Props {
@@ -10,11 +12,11 @@ export default function Pager({ page, count, onPage }: Props) {
   return (
     <div className="row pager">
       <button disabled={page === 1} onClick={() => onPage(page - 1)}>
-        Previous
+        <ChevronLeft size={16} /> Previous
       </button>
       <span className="muted">Page {page}</span>
       <button disabled={count < PAGE_SIZE} onClick={() => onPage(page + 1)}>
-        Next
+        Next <ChevronRight size={16} />
       </button>
     </div>
   );

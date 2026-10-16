@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import SprintCard from "./SprintCard";
@@ -38,7 +39,7 @@ export default function SprintsTab({ email, projectId }: Props) {
 
   return (
     <section>
-      <form className="row card" onSubmit={(event) => void handleCreate(event)}>
+      <form className="card toolbar" onSubmit={(event) => void handleCreate(event)}>
         <input placeholder="Sprint name" value={name} onChange={(event) => setName(event.target.value)} />
         <input type="date" value={start} onChange={(event) => setStart(event.target.value)} />
         <input type="date" value={end} onChange={(event) => setEnd(event.target.value)} />
@@ -50,14 +51,14 @@ export default function SprintsTab({ email, projectId }: Props) {
           onChange={(event) => setCapacity(event.target.value)}
         />
         <button className="primary" type="submit">
-          Create sprint
+          <Plus size={16} /> Create sprint
         </button>
       </form>
 
       {sprints.error !== "" && <p className="error">{sprints.error}</p>}
       {tasks.error !== "" && <p className="error">{tasks.error}</p>}
 
-      <ul className="card">
+      <ul className="card list-card">
         {(sprints.data ?? []).map((sprint) => (
           <SprintCard
             key={sprint.id}

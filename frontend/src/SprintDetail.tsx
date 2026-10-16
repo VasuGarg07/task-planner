@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -73,14 +74,16 @@ export default function SprintDetail({ email, sprintId, tasks, onChange }: Props
                 })
               }
             >
-              Add to sprint
+              <Plus size={16} /> Add to sprint
             </button>
           </div>
           <ul>
             {inSprint.map((task) => (
               <li key={task.id}>
                 <span className="grow">{task.name}</span>
-                <span className="badge">{task.status}</span>
+                <span className="badge" data-status={task.status}>
+                  {task.status}
+                </span>
                 <span>{task.story_points} pts</span>
               </li>
             ))}

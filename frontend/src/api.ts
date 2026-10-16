@@ -115,7 +115,7 @@ async function call(
   method: string,
   body?: object,
 ): Promise<Response> {
-  const response = await fetch(path, {
+  const response = await fetch(`/api${path}`, {
     method,
     headers: { "Content-Type": "application/json", "X-User-Email": email },
     body: body === undefined ? undefined : JSON.stringify(body),

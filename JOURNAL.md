@@ -1,208 +1,68 @@
 # Task Planner: Journal
 
-A project-management API (users, projects, tasks, sprints, audit log) being rewritten from
-Flask to FastAPI, then given a React frontend, Docker, and CI. Stack: Python, FastAPI,
-Postgres (Docker), pytest.
+A project-management API (users, projects, tasks, sprints, audit log) rewritten from Flask to
+FastAPI, then given a React frontend and Docker Compose. Newest entries at the bottom. A line
+that starts with "Decision:" names the option I rejected.
 
-This is a dev diary, newest entries at the bottom. One or two paragraphs each. Entries
-that record a choice start with "Decision:" and name the option I rejected.
+## 2026-10-16: Setup (steps 0 to 3)
+- Decision: rewrite from scratch, not a line-by-line port. A port would keep Flask habits
+  (blueprints, decorators, `config.json`). Cost: slower, and the old code stayed as a reference.
+- Decision: a package (`backend/app/`), not one `main.py`. 24 endpoints would crowd a flat file.
+- Decision: settings from plain `os.environ`, not a settings library. No new dependency, and I
+  can explain every line.
+- The database URL uses `127.0.0.1` when the backend runs on my machine and `db` inside Compose.
+- Learned: VS Code needs `cwd` set to `backend/`, and only VS Code loads `.env`. A terminal needs
+  `uv run --env-file`.
 
-## 2026-10-16: Kickoff
-Decision: rewrite from scratch instead of porting the Flask code line by line. Rejected a
-port: it would carry over Flask-shaped habits (blueprints, decorators for auth and logging,
-`config.json` with a password, one pool in `db.py`) that FastAPI handles differently
-(routers, dependencies, models, `.env`). A rewrite forces me to understand each piece.
-Cost: slower, and the old code must stay as a behavior reference until parity (it is
-deleted in the last step). I chose FastAPI because short-links already taught me the stack,
-and it gives typed request models and automatic `/docs` for free.
+## 2026-10-16: Database and tests (steps 4 to 6)
+- Decision: my own migration runner (`migrate.py`, one transaction per file), not Postgres's init
+  folder. The init folder runs only on an empty volume.
+- Schema changes while splitting `schema.sql`: identity columns, `TIMESTAMPTZ` with defaults,
+  `sprints.project_id NOT NULL`, and `logs.actor_id` as a foreign key with `ON DELETE SET NULL`.
+- Decision: a connection pool created in the app lifespan, not one connection per request
+  (that was a mistake in short-links). Settings: 1 to 10 connections, 3 second timeout. A global
+  handler turns database errors into 503.
+- After a database restart the pool recovers slowly (it retries with a growing delay), so `/health`
+  can stay at 503 for minutes.
+- Decision: a separate `task_planner_test` database. `conftest.py` refuses to run unless the URL
+  ends in `_test`; I proved it by pointing it at the dev database on purpose.
+- The first test run caught a typo in a migration, and the transaction rolled it back cleanly.
 
-Set up the repo like short-links: one git repo, backend in `backend/` (uv), `.vscode`
-for debugging. F5 now starts uvicorn with `cwd` set to `backend/`; my first attempt failed
-with "Could not import module main" because VS Code ran from the repo root.
+## 2026-10-16: The API (steps 7 to 12)
+- Structure: `models.py`, `repository/` (raw SQL), `routers/`. 38 tests; `mypy --strict` and ruff pass.
+- Decision: repositories return Pydantic models (`class_row`), not tuples. Tuples hid an old bug
+  where the sprint capacity check read `sprint_id` instead of `story_points`.
+- Decision: `Depends(get_conn, scope="function")`, so the commit happens before the response is sent.
+- Decision: the audit log is written inside the request's transaction, not by a decorator. A
+  rejected request writes no log. Project deletes are not logged (the rows cascade away).
+- Identity is still the `X-User-Email` header, and only PM is enforced. Every endpoint except
+  `/users` and `/health` now needs it. Known limitation: anyone can send any email.
+- Changes from Flask, on purpose: creates return the object (201), deletes return 204, wrong-state
+  requests return 409, list endpoints order by id.
 
-## 2026-10-16: Step 1 layout
-Decision: a package (`backend/app/`) instead of a flat `main.py` like short-links.
-Rejected flat: with 24 endpoints, four resources, auth and an audit log it would get
-crowded, and the old project already split `routes/` and `repository/`. Cost: the launch
-target becomes `app.main:app`, and imports are slightly longer.
+## 2026-10-16: Seed script and concurrency (steps 14 and 15)
+- Seed script moved to `backend/seed_via_api.py`, rewritten with `httpx`, and it drives the real API.
+- Mistake: my first seed run hit the dev database, because an old server held the port. Before
+  running a truncate, check which database the server on the other end uses.
+- Two races, shown by tests first: sprint capacity failed 8 of 10 runs (weight 6 or 7 against a
+  limit of 5), and conflicting status changes failed 10 of 10.
+- Decision: two different fixes. Capacity is a sum over many rows, so I lock the sprint row
+  (`SELECT ... FOR UPDATE`). A status change touches one row, so it is compare-and-set
+  (`UPDATE ... WHERE status = old`, 409 if no row). Rejected `SERIALIZABLE` with retries.
 
-## 2026-10-16: Steps 2 and 3, settings and Postgres
-Decision: plain `os.environ` in one module (`app/settings.py`) instead of a settings library
-like pydantic-settings. Rejected the library: it is a new dependency that hides what is
-happening, and I could not yet explain what it does. Cost: I write the "missing variable"
-error myself. The database URL is `postgresql://user:password@127.0.0.1:5432/task_planner_db`.
-It uses `127.0.0.1` because Postgres runs in Docker inside WSL2 and the port is published to
-my machine; `db` (the Compose service name) only works for another container, which will
-matter in Step 17. Learned that `.env` is loaded only by VS Code's `envFile` when I press F5,
-so a plain terminal does not see it. Running a script there gave a bare `KeyError`.
+## 2026-10-16: Frontend and Docker (steps 16 and 17)
+- A screen for every endpoint, using Vite, React, TypeScript and plain `fetch`. The status menus
+  show every status and the API's 409 message, so the server keeps the rules.
+- Decision: React Router and Lucide icons, and every API call under `/api` (Vite and nginx strip
+  the prefix). Without it, a reload on `/projects/3` would be forwarded to the API.
+- Styling is plain CSS: a sidebar layout, avatars, and one `data-status` attribute for every
+  status color.
+- Decision: Compose runs `db`, a one-off `migrate` job, `backend` (waits for `migrate`) and
+  `frontend` (nginx). Rejected running migrations at backend start, where replicas would race.
+- Tested the app in the browser (board, status errors, task details, sprints, reports, activity log).
 
-Compose runs only Postgres 18 (pinned), bound to `127.0.0.1`, with a named volume at
-`/var/lib/postgresql` and a `pg_isready` healthcheck. Same shape as short-links, new database
-name `task_planner_db`. The `POSTGRES_*` variables only apply when the volume is empty, so
-changing the password later needs the volume deleted.
-
-## 2026-10-16: Step 4, migrations
-Decision: a small runner (`backend/migrate.py`) that records applied files in a
-`schema_migrations` table, instead of mounting the folder into `docker-entrypoint-initdb.d`
-like short-links. Rejected the init folder: it only runs on an empty volume, so every new
-migration would mean deleting my data. Cost: about 25 lines to write and understand. Each file
-and its `schema_migrations` row run in one transaction, so a failing file leaves nothing behind.
-
-Decision: improved the old schema while splitting it into three files (basic tables, sprints,
-logs). Identity columns instead of `SERIAL`, `TIMESTAMPTZ` with a default for `created_at`,
-`sprints.project_id NOT NULL`, and a foreign key from `logs.actor_id` to `users` with
-`ON DELETE SET NULL` so the log survives a deleted user. Renamed `logs.timestamp` to
-`created_at`. Rejected keeping the old schema as-is: it had a `DATE` with no default and a log
-column that could point at a user that never existed.
-
-## 2026-10-16: Step 5, connection pool
-Decision: a connection pool (`psycopg_pool`, sync `ConnectionPool`) created once in the app
-lifespan and borrowed per request through a dependency, instead of one connection per request
-like short-links. Rejected per-request connections: opening a Postgres connection is
-expensive, and Postgres caps total connections (100 by default), so it does not survive load.
-It was a mistake to skip the pool in short-links. Pool settings: sizes 1 and 10, `timeout=3` so
-a dead database fails fast, `check_connection` so dead sockets are replaced, `open=False`
-because the implicit `open=True` default is going to change. A global handler turns
-`OperationalError` and `PoolTimeout` into a 503. A try/except inside `/health` would not work,
-because the borrow happens in the dependency before the endpoint body runs.
-
-Checked current docs and forum advice: lifespan plus a sync pool for plain `def` endpoints is
-still the standard. Considered a module-level pool (shorter) and lifespan state with
-`request.state`. Kept `app.state`: a module-level pool reads the URL at import time, which
-would make the test database easy to bypass. In production the real work is the arithmetic:
-workers x `max_size` x instances must stay under Postgres's connection limit, usually with
-PgBouncer in front.
-
-Tested by stopping and starting the database container while the server ran: `/health` gave
-200, then 503 after exactly 3 seconds (the pool `timeout`) with the server still up, then
-200 again after the container came back. Recovery was not instant: it was still 503 about
-two and a half minutes after the restart, even though a direct connection worked. The pool
-retries with exponential backoff (1s, 2s, 4s and so on), so after a long outage the next
-attempt can be minutes away. Fine for local work, but something to tune before relying on it.
-
-## 2026-10-16: Step 6, test setup
-Decision: a separate database `task_planner_test` in the same container, instead of a test
-schema inside the dev database or a throwaway container per run. Rejected the schema: a wrong
-setting could wipe real dev data. Rejected a container per run: slow, and I do not need that
-isolation yet. `conftest.py` asserts the test URL ends with `_test`, runs the migrations on
-it, then truncates all tables before every test. `TestClient` must be used with `with`, or the
-lifespan never runs and there is no pool.
-
-The first test run caught a real bug: `003_logs.sql` had `INTEGER` split across two lines.
-The runner applied `001` and `002` and rolled `003` back, so the transaction design worked.
-Tests run with `uv run --env-file ../.env pytest` from `backend/`. Proved the guard: I
-inserted a sentinel user into the dev database, pointed `TEST_DATABASE_URL` at the dev database
-on purpose, and pytest stopped on the assertion before touching anything. The sentinel row was
-still there afterwards, and I deleted it.
-
-## 2026-10-16: Steps 7 to 12, all resources
-Built users, auth, projects, tasks, sprints, the audit log and the reports in one pass, with
-38 tests (success, 404, validation error, forbidden role, state conflicts, logs, reports).
-`mypy --strict` and ruff are clean; I ran them with `uvx`, so they are not project
-dependencies yet. Layout: `app/models.py` (Pydantic models), `app/repository/` (raw SQL, one
-file per resource), `app/routers/` (HTTP only), plus `database.py`, `auth.py`, `errors.py` and
-`pagination.py`. Each resource got its own repository functions and router, same shape every
-time, so the later ones were mostly copying a pattern I already understood.
-
-Decision: repository functions return Pydantic models through psycopg's `class_row`, instead
-of tuples plus `dict(zip(columns, row))` like the Flask code. Rejected tuples: `row[8]` is
-unreadable, and it hid a real bug in the old sprint capacity check: it read `sprint_id`
-(index 8) where it meant `story_points` (index 9). Cost: one small model per shape.
-
-Decision: `Depends(get_conn, scope="function")`. Per the `Depends` docs, a `yield` dependency by default
-runs its exit code after the response is sent, and my pool commits on exit, so a client could get
-201 before the commit and never learn that the commit failed. Function scope commits first,
-and an `HTTPException` raised mid-request rolls everything back.
-
-Decision: the audit log is an explicit `add_log(...)` call inside each endpoint, in the same
-transaction as the change, instead of the old `@log_action` decorator. Rejected the decorator:
-it wrote the log in a separate connection after the work, parsed the response body to find
-the ids, and a failed request could leave a change without its log. Now a rejected request
-writes no log (there is a test for it). Project deletes are not logged because
-`logs.project_id` cascades and the rows would vanish with the project.
-
-Decision: identity is still the `X-User-Email` header (401 without it, 403 for an unknown
-email). Only the PM role is enforced (create or delete project, project status, create sprint,
-add task to sprint, sprint status). I now require identity on every endpoint except `/users`
-and `/health`; the old list endpoints for projects and tasks were open by accident. `/users`
-stays open because the first user has to be created somehow. Known limitation: anyone can
-send any email.
-
-Behavior changes from the Flask version, on purpose: creates return the created object with
-201, deletes return 204, and "valid request in the wrong state" is 409 (illegal status
-transition, sprint over capacity, duplicate name or email) instead of 400. A reference to a
-row that does not exist (bad `project_id` or `assignee_id`) is 400 through a foreign-key
-handler. `GET /users?email=` returns a list instead of a single user or 404. List endpoints
-now order by id, because `LIMIT`/`OFFSET` without `ORDER BY` can repeat or skip rows. The
-workload report returns an empty report for a project with no assigned tasks, where the old
-code answered 404, and the project logs answer 404 only for an unknown project.
-
-## 2026-10-16: Flask code removed
-Deleted `app.py`, `routes/`, `repository/`, `middlewares/`, `db.py`, `schema.sql` and
-`requirements.txt` in one commit. The new app covers all 24 endpoints from the inventory, and
-the old behavior is recorded above, so the reference code was no longer needed.
-
-## 2026-10-16: Step 14, seed script
-Moved `scripts/seed_via_api.py` to `backend/seed_via_api.py` and rewrote it against the new
-API. It still drives the real API, so status transitions and the audit log fire. Decision:
-`httpx` instead of `requests`. `requests` is no longer a dependency, and `httpx` already comes
-with `fastapi[standard]`, so there is nothing new to add. The script is typed (it passes
-`mypy --strict`), reads the database through `get_db_conn()` and `DATABASE_URL` instead of
-`config.json`, and takes the API address from `API_URL` (default `http://127.0.0.1:8000`).
-Run it from `backend/` with the API running: `uv run --env-file ../.env python seed_via_api.py`.
-It truncates all tables first, so it only makes sense on a development database.
-
-Result on the test database: 5 users, 2 projects, 6 sprints, 35 tasks and 154 log rows, with a
-realistic spread of task statuses. Three `add-task` calls were rejected with 409 because the
-sprint was over capacity, which is the capacity rule doing its job. Every sprint ends up
-`COMPLETED`, because all sprint dates fall before today.
-
-Mistake: my first verification run seeded the development database by accident. I started a
-throwaway server on a spare port to point at the test database, but something was already
-listening on that port, so the new server failed to bind and the old one (connected to the
-dev database) answered the requests while the script's truncate hit the test database. The
-dev database had no earlier rows (user ids start at 2 because of the guard-proof sentinel), so
-nothing was lost. Lesson: before running a script that truncates, check which database the
-server on the other end is using, and confirm the server really started.
-
-## 2026-10-16: Step 15, concurrency
-Reproduced the capacity race by hand first, with two `psql` sessions on the test database: both
-read a sprint weight of 0, both added a 3-point task, and the weight ended at 6 against a limit
-of 5. Then wrote two tests that fire parallel requests through one shared client. Before any
-fix, the capacity test (20 tasks of 1 point, capacity 5, 20 parallel `add-task` calls) failed
-in 8 of 10 runs with a final weight of 6 or 7, and the status test (10 tasks moved to `DONE`
-and `VOID` at the same time) failed in 10 of 10 runs, with most tasks getting a 200 from both
-requests instead of one 200 and one 409. The capacity race is probabilistic, so a single green run proves
-nothing.
-
-Decision: two different fixes, because the two bugs are different shapes. Capacity is an
-invariant over many rows (the sum of a sprint's tasks), so one atomic statement on the task row
-cannot protect it: two transactions each fail to see the other's uncommitted row. I serialize
-on a shared row instead, with `SELECT ... FOR UPDATE` on the sprint at the start of `add-task`
-(`lock_sprint`). A task status change touches one row, so it uses compare-and-set:
-`UPDATE tasks SET status = new WHERE id = x AND status = old`, and no row back means 409
-("status changed meanwhile") before anything is logged. Rejected: `SERIALIZABLE` with retries,
-which is more general but needs a retry loop I do not need yet. Also learned that the lock lives
-for the whole request transaction, which is why the connection must be committed before the
-response (`scope="function"`) and why holding it long would starve the pool.
-
-## 2026-10-16: Steps 16 and 17, frontend and Docker
-Decision: the frontend uses the same stack and versions as short-links (Vite, React,
-TypeScript, plain `fetch`, a dev proxy) with no router or UI library. It now has a screen for
-every one of the 24 endpoints: health badge, users (create, list, delete, paging), projects
-(create, list with status filter and paging, open, change status, delete), a task board
-(create, move between statuses, details with assign, story points and delete), sprints (create,
-sprint report, details with current weight, add a task, change status), workload report and the
-project activity log. Identity is a "Acting as" menu built from `GET /users`. Rejected copying the
-status transition table into the browser: the status menus offer every status and show the API's
-409 message, so the server stays the only place that knows the rules. A small `useLoad` hook
-holds the load, error and reload logic that every screen repeated.
-
-Decision: Docker Compose gets four services: `db`, a one-off `migrate` job that reuses the
-backend image and runs `migrate.py`, `backend`, which waits for `migrate` to finish
-(`service_completed_successfully`), and `frontend`, nginx serving the build and forwarding the API
-paths to `backend`. Rejected mounting migrations into `docker-entrypoint-initdb.d` (it only runs on
-an empty volume) and running migrations inside the backend container's start command (several
-replicas would race). In Compose the database host is `db`, not `127.0.0.1`. `DB_PASSWORD` now
-fails fast with a clear message when `.env` is missing. Added both Dockerfiles, `.dockerignore`
-files, `nginx.conf` and a README with the run, develop, test and seed instructions.
+## 2026-10-16: Close-out (steps 18 and 19)
+- Decision: skipped CI for now. Cost: tests and linters only run when I run them.
+- Removed the Flask code, `requirements.txt`, `schema.sql`, `db.py` and `config.json`.
+- Process mistake: my commits carried a Claude co-author line and were made unasked, so the
+  history was rewritten and the rule is saved.

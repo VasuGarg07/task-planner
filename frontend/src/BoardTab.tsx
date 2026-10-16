@@ -1,5 +1,7 @@
+import { Info, Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
+import Avatar from "./Avatar";
 import TaskPanel from "./TaskPanel";
 import {
   TASK_STATUSES,
@@ -44,10 +46,10 @@ export default function BoardTab({ email, projectId, users }: Props) {
   }
 
   return (
-    <section>
-      <form className="row card" onSubmit={(event) => void handleCreate(event)}>
+    <>
+      <form className="card toolbar" onSubmit={(event) => void handleCreate(event)}>
         <input placeholder="Task name" value={name} onChange={(event) => setName(event.target.value)} />
-        <input placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} />
+        <input className="wide" placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} />
         <select value={assignee} onChange={(event) => setAssignee(event.target.value)}>
           <option value="">Unassigned</option>
           {users.map((user) => (
@@ -57,7 +59,7 @@ export default function BoardTab({ email, projectId, users }: Props) {
           ))}
         </select>
         <button className="primary" type="submit">
-          Add task
+          <Plus size={16} /> Add task
         </button>
       </form>
 
@@ -74,17 +76,24 @@ export default function BoardTab({ email, projectId, users }: Props) {
       )}
 
       <div className="board">
-        {TASK_STATUSES.map((status) => (
-          <div className="column card" key={status}>
-            <h3>{status}</h3>
-            {tasks
-              .filter((task) => task.status === status)
-              .map((task) => (
+        {TASK_STATUSES.map((status) => {
+          const column = tasks.filter((task) => task.status === status);
+          return (
+            <div className="column" data-status={status} key={status}>
+              <h3>
+                <span className="badge" data-status={status}>
+                  {status}
+                </span>
+                <span className="count">{column.length}</span>
+              </h3>
+              {column.map((task) => (
                 <div className="task" key={task.id}>
                   <strong>{task.name}</strong>
-                  <span className="muted">
-                    {userName(users, task.assignee_id, "Unassigned")} · {task.story_points} pts
-                  </span>
+                  <div className="row task-meta">
+                    <Avatar small name={userName(users, task.assignee_id, "?")} />
+                    <span className="muted">{userName(users, task.assignee_id, "Unassigned")}</span>
+                    <span className="points">{task.story_points} pts</span>
+                  </div>
                   <select
                     value={task.status}
                     onChange={(event) =>
@@ -95,12 +104,16 @@ export default function BoardTab({ email, projectId, users }: Props) {
                       <option key={option}>{option}</option>
                     ))}
                   </select>
-                  <button onClick={() => setOpenTaskId(task.id)}>Details</button>
+                  <button onClick={() => setOpenTaskId(task.id)}>
+                    <Info size={16} /> Details
+                  </button>
                 </div>
               ))}
-          </div>
-        ))}
+              {column.length === 0 && <p className="muted">No tasks</p>}
+            </div>
+          );
+        })}
       </div>
-    </section>
+    </>
   );
 }

@@ -1,18 +1,15 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const backend = "http://127.0.0.1:8000";
-
 export default defineConfig({
   plugins: [react()],
   server: {
     strictPort: true,
     proxy: {
-      "/users": backend,
-      "/projects": backend,
-      "/tasks": backend,
-      "/sprints": backend,
-      "/health": backend,
+      "/api": {
+        target: "http://127.0.0.1:8000",
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
     },
   },
 });

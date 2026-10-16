@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { Activity, ArrowLeft, Calendar, Gauge, ListChecks, Trash2, type LucideIcon } from "lucide-react";
+import { Link, Navigate, NavLink, useNavigate, useParams } from "react-router";
 
 import ActivityTab from "./ActivityTab";
 import BoardTab from "./BoardTab";
@@ -16,30 +17,40 @@ import { useLoad } from "./useLoad";
 
 type Tab = "board" | "sprints" | "workload" | "activity";
 
-const TABS: Tab[] = ["board", "sprints", "workload", "activity"];
+const TABS: { name: Tab; icon: LucideIcon }[] = [
+  { name: "board", icon: ListChecks },
+  { name: "sprints", icon: Calendar },
+  { name: "workload", icon: Gauge },
+  { name: "activity", icon: Activity },
+];
 
 interface Props {
   email: string;
-  id: number;
   users: User[];
-  onBack: () => void;
 }
 
-export default function ProjectDetail({ email, id, users, onBack }: Props) {
-  const [tab, setTab] = useState<Tab>("board");
+export default function ProjectDetail({ email, users }: Props) {
+  const params = useParams();
+  const navigate = useNavigate();
+  const id = Number(params.projectId);
+  const tab = TABS.find((item) => item.name === params.tab)?.name;
   const { data: project, error, run } = useLoad(() => getProject(email, id), [email, id]);
+
+  if (tab === undefined) return <Navigate to={`/projects/${id}/board`} replace />;
 
   return (
     <section>
-      <button onClick={onBack}>Back to projects</button>
+      <Link className="back" to="/projects">
+        <ArrowLeft size={16} /> Back to projects
+      </Link>
       {error !== "" && <p className="error">{error}</p>}
 
       {project !== null && (
         <>
-          <div className="row title-row">
+          <div className="page-head">
             <div>
-              <h2>{project.name}</h2>
-              <span className="muted">{project.description}</span>
+              <h1>{project.name}</h1>
+              <p className="muted">{project.description}</p>
             </div>
             <div className="row">
               <select
@@ -53,25 +64,26 @@ export default function ProjectDetail({ email, id, users, onBack }: Props) {
                 ))}
               </select>
               <button
+                className="danger"
                 onClick={() =>
                   void run(async () => {
                     await deleteProject(email, id);
-                    onBack();
+                    navigate("/projects");
                   })
                 }
               >
-                Delete project
+                <Trash2 size={16} /> Delete project
               </button>
             </div>
           </div>
 
-          <div className="row tabs">
-            {TABS.map((name) => (
-              <button key={name} className={tab === name ? "active" : ""} onClick={() => setTab(name)}>
-                {name}
-              </button>
+          <nav className="row tabs">
+            {TABS.map(({ name, icon: Icon }) => (
+              <NavLink key={name} to={`/projects/${id}/${name}`}>
+                <Icon size={16} /> {name}
+              </NavLink>
             ))}
-          </div>
+          </nav>
 
           {tab === "board" && <BoardTab email={email} projectId={id} users={users} />}
           {tab === "sprints" && <SprintsTab email={email} projectId={id} />}

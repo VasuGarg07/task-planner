@@ -1,5 +1,8 @@
+import { FolderKanban, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { Link } from "react-router";
 
+import Pager from "./Pager";
 import {
   PROJECT_STATUSES,
   type ProjectStatus,
@@ -7,15 +10,13 @@ import {
   deleteProject,
   getProjects,
 } from "./api";
-import Pager from "./Pager";
 import { useLoad } from "./useLoad";
 
 interface Props {
   email: string;
-  onOpen: (id: number) => void;
 }
 
-export default function ProjectList({ email, onOpen }: Props) {
+export default function ProjectList({ email }: Props) {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<ProjectStatus | "">("");
   const [name, setName] = useState("");
@@ -36,9 +37,12 @@ export default function ProjectList({ email, onOpen }: Props) {
   }
 
   return (
-    <section className="card">
-      <div className="row title-row">
-        <h2>Projects</h2>
+    <>
+      <div className="page-head">
+        <div>
+          <h1>Projects</h1>
+          <p className="muted">Open a project to see its board, sprints, workload and activity.</p>
+        </div>
         <select
           value={status}
           onChange={(event) => {
@@ -52,31 +56,48 @@ export default function ProjectList({ email, onOpen }: Props) {
           ))}
         </select>
       </div>
-      <form className="row" onSubmit={(event) => void handleCreate(event)}>
+
+      <form className="card toolbar" onSubmit={(event) => void handleCreate(event)}>
         <input placeholder="Project name" value={name} onChange={(event) => setName(event.target.value)} />
-        <input placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} />
+        <input className="wide" placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} />
         <button className="primary" type="submit">
-          Create project
+          <Plus size={16} /> Create project
         </button>
       </form>
+
       {error !== "" && <p className="error">{error}</p>}
-      {projects.length === 0 && error === "" && <p className="muted">No projects.</p>}
-      <ul>
-        {projects.map((project) => (
-          <li key={project.id}>
-            <div className="grow">
-              <strong>{project.name}</strong>
-              <span className="muted">{project.description}</span>
-            </div>
-            <span className="badge">{project.status}</span>
-            <button onClick={() => onOpen(project.id)}>Open</button>
-            <button onClick={() => void run(() => deleteProject(email, project.id))}>
-              Delete
-            </button>
-          </li>
-        ))}
-      </ul>
+      {projects.length === 0 && error === "" && <div className="card empty">No projects yet.</div>}
+
+      {projects.length > 0 && (
+        <section className="card list-card">
+          <ul>
+            {projects.map((project) => (
+              <li key={project.id}>
+                <span className="tile">
+                  <FolderKanban size={20} />
+                </span>
+                <div className="grow">
+                  <Link className="item-title" to={`/projects/${project.id}`}>
+                    {project.name}
+                  </Link>
+                  <span className="muted">{project.description}</span>
+                </div>
+                <span className="badge" data-status={project.status}>
+                  {project.status}
+                </span>
+                <button
+                  className="danger icon"
+                  title="Delete project"
+                  onClick={() => void run(() => deleteProject(email, project.id))}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <Pager page={page} count={projects.length} onPage={setPage} />
-    </section>
+    </>
   );
 }

@@ -1,3 +1,4 @@
+import { Check, Trash2, X } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -26,7 +27,9 @@ export default function TaskPanel({ email, taskId, users, onChange, onClose }: P
     <div className="card panel">
       <div className="row title-row">
         <h2>{task === null ? "Task" : task.name}</h2>
-        <button onClick={onClose}>Close</button>
+        <button onClick={onClose}>
+          <X size={16} /> Close
+        </button>
       </div>
       {error !== "" && <p className="error">{error}</p>}
 
@@ -80,9 +83,10 @@ export default function TaskPanel({ email, taskId, users, onChange, onClose }: P
                 })
               }
             >
-              Set points
+              <Check size={16} /> Set points
             </button>
             <button
+              className="danger"
               onClick={() =>
                 void run(async () => {
                   await deleteTask(email, task.id);
@@ -91,7 +95,7 @@ export default function TaskPanel({ email, taskId, users, onChange, onClose }: P
                 })
               }
             >
-              Delete task
+              <Trash2 size={16} /> Delete task
             </button>
           </div>
         </>
