@@ -6,3 +6,6 @@ __pycache__/
 # Ignore secret password configurations
 config.json
 .env
+
+
+REWRITE-PLAN.md
