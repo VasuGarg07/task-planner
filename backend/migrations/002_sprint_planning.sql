@@ -1,0 +1,13 @@
+CREATE TABLE sprints (
+    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    project_id INT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name VARCHAR(50) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    max_capacity INTEGER NOT NULL,
+    status VARCHAR(20) DEFAULT 'PLANNING',
+    CONSTRAINT check_status CHECK (status IN ('PLANNING', 'ACTIVE', 'COMPLETED'))
+);
+
+ALTER TABLE tasks ADD COLUMN story_points INTEGER DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL;

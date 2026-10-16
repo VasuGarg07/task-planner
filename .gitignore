@@ -1,8 +1,11 @@
 # Ignore local environment packages
-venv/
+.venv/
 __pycache__/
 *.pyc
 
 # Ignore secret password configurations
 config.json
 .env
+
+
+REWRITE-PLAN.md

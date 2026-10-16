@@ -1,0 +1,15 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]>=0.143.2",
+    "psycopg[binary,pool]>=3.3.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
