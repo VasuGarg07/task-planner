@@ -75,3 +75,12 @@ def list_sprint_loads(conn: Connection, project_id: int) -> list[SprintLoad]:
         """,
         (project_id,),
     )
+
+
+def lock_sprint(conn: Connection, sprint_id: int) -> Sprint | None:
+    return find_one(
+        conn,
+        Sprint,
+        f"SELECT {SPRINT_COLUMNS} FROM sprints WHERE id = %s FOR UPDATE",
+        (sprint_id,),
+    )

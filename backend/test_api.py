@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi.testclient import TestClient
 
 Headers = dict[str, str]
@@ -525,3 +527,69 @@ def test_reports_for_project_without_tasks_are_empty(client: TestClient) -> None
     assert workload.json()["workload_report"] == {}
     assert sprints.json() == []
     assert unknown.status_code == 404
+
+
+def test_parallel_add_task_never_exceeds_capacity(client: TestClient) -> None:
+    pm = register(client, "PM")
+    project_id = create_project(client, pm)
+    sprint_id = create_sprint(client, pm, project_id, max_capacity=5)
+    task_ids = []
+    for number in range(20):
+        task_id = create_task(client, pm, project_id, f"Task {number}")
+        client.patch(
+            f"/tasks/{task_id}/story-points", json={"story_points": 1}, headers=pm
+        )
+        task_ids.append(task_id)
+
+    def add_to_sprint(task_id: int) -> int:
+        response = client.patch(
+            f"/sprints/{sprint_id}/add-task", json={"task_id": task_id}, headers=pm
+        )
+        return int(response.status_code)
+
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        statuses = list(pool.map(add_to_sprint, task_ids))
+
+    weight = client.get(f"/sprints/{sprint_id}/current-weight", headers=pm).json()
+    assert weight["current_weight"] == 5
+    assert statuses.count(200) == 5
+    assert statuses.count(409) == 15
+
+
+def test_conflicting_status_changes_allow_only_one_winner(client: TestClient) -> None:
+    pm = register(client, "PM")
+    project_id = create_project(client, pm)
+    task_ids = []
+    for number in range(10):
+        task_id = create_task(client, pm, project_id, f"Task {number}")
+        client.patch(
+            f"/tasks/{task_id}/status", json={"status": "IN PROGRESS"}, headers=pm
+        )
+        task_ids.append(task_id)
+    changes = []
+    for task_id in task_ids:
+        changes.append((task_id, "DONE"))
+        changes.append((task_id, "VOID"))
+
+    def change_status(change: tuple[int, str]) -> tuple[int, int]:
+        task_id, status = change
+        response = client.patch(
+            f"/tasks/{task_id}/status", json={"status": status}, headers=pm
+        )
+        return task_id, response.status_code
+
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        results = list(pool.map(change_status, changes))
+
+    successes_per_task = {task_id: 0 for task_id in task_ids}
+    for task_id, code in results:
+        if code == 200:
+            successes_per_task[task_id] += 1
+    logs = client.get(f"/projects/{project_id}/logs", headers=pm).json()
+    updates_per_task = {task_id: 0 for task_id in task_ids}
+    for log in logs:
+        if log["subject_type"] == "TASK" and log["action_type"] == "UPDATE":
+            updates_per_task[log["subject_id"]] += 1
+
+    assert list(successes_per_task.values()) == [1] * 10
+    assert list(updates_per_task.values()) == [2] * 10

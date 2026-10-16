@@ -141,3 +141,26 @@ code answered 404, and the project logs answer 404 only for an unknown project.
 Deleted `app.py`, `routes/`, `repository/`, `middlewares/`, `db.py`, `schema.sql` and
 `requirements.txt` in one commit. The new app covers all 24 endpoints from the inventory, and
 the old behavior is recorded above, so the reference code was no longer needed.
+
+## 2026-10-16: Step 14, seed script
+Moved `scripts/seed_via_api.py` to `backend/seed_via_api.py` and rewrote it against the new
+API. It still drives the real API, so status transitions and the audit log fire. Decision:
+`httpx` instead of `requests`. `requests` is no longer a dependency, and `httpx` already comes
+with `fastapi[standard]`, so there is nothing new to add. The script is typed (it passes
+`mypy --strict`), reads the database through `get_db_conn()` and `DATABASE_URL` instead of
+`config.json`, and takes the API address from `API_URL` (default `http://127.0.0.1:8000`).
+Run it from `backend/` with the API running: `uv run --env-file ../.env python seed_via_api.py`.
+It truncates all tables first, so it only makes sense on a development database.
+
+Result on the test database: 5 users, 2 projects, 6 sprints, 35 tasks and 154 log rows, with a
+realistic spread of task statuses. Three `add-task` calls were rejected with 409 because the
+sprint was over capacity, which is the capacity rule doing its job. Every sprint ends up
+`COMPLETED`, because all sprint dates fall before today.
+
+Mistake: my first verification run seeded the development database by accident. I started a
+throwaway server on a spare port to point at the test database, but something was already
+listening on that port, so the new server failed to bind and the old one (connected to the
+dev database) answered the requests while the script's truncate hit the test database. The
+dev database had no earlier rows (user ids start at 2 because of the guard-proof sentinel), so
+nothing was lost. Lesson: before running a script that truncates, check which database the
+server on the other end is using, and confirm the server really started.

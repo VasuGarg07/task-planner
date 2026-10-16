@@ -50,7 +50,7 @@ def get_sprint_weight(sprint_id: int, conn: DbConn) -> SprintWeight:
 def add_task_to_sprint(
     sprint_id: int, body: SprintTask, conn: DbConn, pm: PmUser
 ) -> Task:
-    sprint = found_or_404(repo.find_sprint(conn, sprint_id), "Sprint")
+    sprint = found_or_404(repo.lock_sprint(conn, sprint_id), "Sprint")
     task = found_or_404(tasks.find_task(conn, body.task_id), "Task")
     weight = repo.sprint_weight(conn, sprint_id)
     if weight.current_weight + task.story_points > sprint.max_capacity:

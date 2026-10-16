@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import CurrentUser, current_user
 from app.database import DbConn
@@ -77,7 +77,9 @@ def patch_task_status(
 ) -> Task:
     task = found_or_404(repo.find_task(conn, task_id), "Task")
     check_transition(TASK_TRANSITIONS, task.status, change.status)
-    updated = found_or_404(repo.set_task_status(conn, task_id, change.status), "Task")
+    updated = repo.set_task_status(conn, task_id, task.status, change.status)
+    if updated is None:
+        raise HTTPException(status_code=409, detail="Task status changed meanwhile")
     logs.add_log(conn, user.id, "TASK", task_id, updated.project_id, "UPDATE", updated)
     return updated
 

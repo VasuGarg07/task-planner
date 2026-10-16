@@ -63,12 +63,17 @@ def set_assignee(conn: Connection, task_id: int, assignee_id: int) -> Task | Non
     )
 
 
-def set_task_status(conn: Connection, task_id: int, status: TaskStatus) -> Task | None:
+def set_task_status(
+    conn: Connection, task_id: int, current: TaskStatus, status: TaskStatus
+) -> Task | None:
     return find_one(
         conn,
         Task,
-        f"UPDATE tasks SET status = %s WHERE id = %s RETURNING {TASK_COLUMNS}",
-        (status, task_id),
+        f"""
+        UPDATE tasks SET status = %s WHERE id = %s AND status = %s
+        RETURNING {TASK_COLUMNS}
+        """,
+        (status, task_id, current),
     )
 
 
