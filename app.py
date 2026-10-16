@@ -20,7 +20,7 @@ def health_check():
                 output = cursor.fetchone()
                 print(f"output: {output}")
 
-        return jsonify({"status": "healthy", "database":"connected"}), 200
+                return jsonify({"status": "healthy", "database":"connected"}), 200
 
     except Exception as e:
         print(f"Error: {e}")
