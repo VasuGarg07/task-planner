@@ -94,3 +94,50 @@ Tests run with `uv run --env-file ../.env pytest` from `backend/`. Proved the gu
 inserted a sentinel user into the dev database, pointed `TEST_DATABASE_URL` at the dev database
 on purpose, and pytest stopped on the assertion before touching anything. The sentinel row was
 still there afterwards, and I deleted it.
+
+## 2026-10-16: Steps 7 to 12, all resources
+Built users, auth, projects, tasks, sprints, the audit log and the reports in one pass, with
+38 tests (success, 404, validation error, forbidden role, state conflicts, logs, reports).
+`mypy --strict` and ruff are clean; I ran them with `uvx`, so they are not project
+dependencies yet. Layout: `app/models.py` (Pydantic models), `app/repository/` (raw SQL, one
+file per resource), `app/routers/` (HTTP only), plus `database.py`, `auth.py`, `errors.py` and
+`pagination.py`. Each resource got its own repository functions and router, same shape every
+time, so the later ones were mostly copying a pattern I already understood.
+
+Decision: repository functions return Pydantic models through psycopg's `class_row`, instead
+of tuples plus `dict(zip(columns, row))` like the Flask code. Rejected tuples: `row[8]` is
+unreadable, and it hid a real bug in the old sprint capacity check: it read `sprint_id`
+(index 8) where it meant `story_points` (index 9). Cost: one small model per shape.
+
+Decision: `Depends(get_conn, scope="function")`. Per the `Depends` docs, a `yield` dependency by default
+runs its exit code after the response is sent, and my pool commits on exit, so a client could get
+201 before the commit and never learn that the commit failed. Function scope commits first,
+and an `HTTPException` raised mid-request rolls everything back.
+
+Decision: the audit log is an explicit `add_log(...)` call inside each endpoint, in the same
+transaction as the change, instead of the old `@log_action` decorator. Rejected the decorator:
+it wrote the log in a separate connection after the work, parsed the response body to find
+the ids, and a failed request could leave a change without its log. Now a rejected request
+writes no log (there is a test for it). Project deletes are not logged because
+`logs.project_id` cascades and the rows would vanish with the project.
+
+Decision: identity is still the `X-User-Email` header (401 without it, 403 for an unknown
+email). Only the PM role is enforced (create or delete project, project status, create sprint,
+add task to sprint, sprint status). I now require identity on every endpoint except `/users`
+and `/health`; the old list endpoints for projects and tasks were open by accident. `/users`
+stays open because the first user has to be created somehow. Known limitation: anyone can
+send any email.
+
+Behavior changes from the Flask version, on purpose: creates return the created object with
+201, deletes return 204, and "valid request in the wrong state" is 409 (illegal status
+transition, sprint over capacity, duplicate name or email) instead of 400. A reference to a
+row that does not exist (bad `project_id` or `assignee_id`) is 400 through a foreign-key
+handler. `GET /users?email=` returns a list instead of a single user or 404. List endpoints
+now order by id, because `LIMIT`/`OFFSET` without `ORDER BY` can repeat or skip rows. The
+workload report returns an empty report for a project with no assigned tasks, where the old
+code answered 404, and the project logs answer 404 only for an unknown project.
+
+## 2026-10-16: Flask code removed
+Deleted `app.py`, `routes/`, `repository/`, `middlewares/`, `db.py`, `schema.sql` and
+`requirements.txt` in one commit. The new app covers all 24 endpoints from the inventory, and
+the old behavior is recorded above, so the reference code was no longer needed.
