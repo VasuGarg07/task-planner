@@ -164,3 +164,45 @@ dev database) answered the requests while the script's truncate hit the test dat
 dev database had no earlier rows (user ids start at 2 because of the guard-proof sentinel), so
 nothing was lost. Lesson: before running a script that truncates, check which database the
 server on the other end is using, and confirm the server really started.
+
+## 2026-10-16: Step 15, concurrency
+Reproduced the capacity race by hand first, with two `psql` sessions on the test database: both
+read a sprint weight of 0, both added a 3-point task, and the weight ended at 6 against a limit
+of 5. Then wrote two tests that fire parallel requests through one shared client. Before any
+fix, the capacity test (20 tasks of 1 point, capacity 5, 20 parallel `add-task` calls) failed
+in 8 of 10 runs with a final weight of 6 or 7, and the status test (10 tasks moved to `DONE`
+and `VOID` at the same time) failed in 10 of 10 runs, with most tasks getting a 200 from both
+requests instead of one 200 and one 409. The capacity race is probabilistic, so a single green run proves
+nothing.
+
+Decision: two different fixes, because the two bugs are different shapes. Capacity is an
+invariant over many rows (the sum of a sprint's tasks), so one atomic statement on the task row
+cannot protect it: two transactions each fail to see the other's uncommitted row. I serialize
+on a shared row instead, with `SELECT ... FOR UPDATE` on the sprint at the start of `add-task`
+(`lock_sprint`). A task status change touches one row, so it uses compare-and-set:
+`UPDATE tasks SET status = new WHERE id = x AND status = old`, and no row back means 409
+("status changed meanwhile") before anything is logged. Rejected: `SERIALIZABLE` with retries,
+which is more general but needs a retry loop I do not need yet. Also learned that the lock lives
+for the whole request transaction, which is why the connection must be committed before the
+response (`scope="function"`) and why holding it long would starve the pool.
+
+## 2026-10-16: Steps 16 and 17, frontend and Docker
+Decision: the frontend uses the same stack and versions as short-links (Vite, React,
+TypeScript, plain `fetch`, a dev proxy) with no router or UI library. It now has a screen for
+every one of the 24 endpoints: health badge, users (create, list, delete, paging), projects
+(create, list with status filter and paging, open, change status, delete), a task board
+(create, move between statuses, details with assign, story points and delete), sprints (create,
+sprint report, details with current weight, add a task, change status), workload report and the
+project activity log. Identity is a "Acting as" menu built from `GET /users`. Rejected copying the
+status transition table into the browser: the status menus offer every status and show the API's
+409 message, so the server stays the only place that knows the rules. A small `useLoad` hook
+holds the load, error and reload logic that every screen repeated.
+
+Decision: Docker Compose gets four services: `db`, a one-off `migrate` job that reuses the
+backend image and runs `migrate.py`, `backend`, which waits for `migrate` to finish
+(`service_completed_successfully`), and `frontend`, nginx serving the build and forwarding the API
+paths to `backend`. Rejected mounting migrations into `docker-entrypoint-initdb.d` (it only runs on
+an empty volume) and running migrations inside the backend container's start command (several
+replicas would race). In Compose the database host is `db`, not `127.0.0.1`. `DB_PASSWORD` now
+fails fast with a clear message when `.env` is missing. Added both Dockerfiles, `.dockerignore`
+files, `nginx.conf` and a README with the run, develop, test and seed instructions.

@@ -9,3 +9,6 @@ config.json
 
 
 REWRITE-PLAN.md
+# Frontend
+node_modules/
+dist/
